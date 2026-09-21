@@ -1,0 +1,4 @@
+/jellytop
+/dist/
+*.test
+*.out
