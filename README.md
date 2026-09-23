@@ -10,11 +10,11 @@ jellytop  muse · 10.11.11 · http://127.0.0.1:8096                             
  1 Sessions   2 Activity   3 Users   4 Libraries   5 Tasks
 
   USER       NOW PLAYING                        DEVICE              STREAM       BITRATE
-▶ ada        Severance S01E03 — In Perpetuity   Jellyfin Web · Mac  Direct Play  13.8 Mbps  ████████░░░░  24:11/45:02
-⏸ linus      Dune: Part Two (2024)              Infuse · Apple TV   Transcode     4.0 Mbps  ███░░░░░░░░░  18:40/2:46:09
-○ grace      idle                               Jellyfin · iPhone   —                    —                seen 3h
+▶ ada        Severance S01E03 — In Perpetuity   Jellyfin Web · Mac  Direct Play  13.8 Mbps (avg)  ████████░░░░  24:11/45:02
+⏸ linus      Dune: Part Two (2024)              Infuse · Apple TV   Transcode     4.0 Mbps        ███░░░░░░░░░  18:40/2:46:09
+○ grace      idle                               Jellyfin · iPhone   —                    —                      seen 3h
 
-3 sessions · 2 streaming · 17.8 Mbps out                                                     updated 1s ago
+3 sessions · 2 streaming · 17.8 Mbps out (avg)                                                          updated 1s ago
 enter details  ·  s stop playback  ·  m message  ·  r refresh  ·  tab next  ·  ? help  ·  q quit
 ```
 
@@ -100,8 +100,10 @@ Per tab: `s` stop playback and `m` message a client (Sessions) · `/` filter and
   sum of the media source's stream bitrates, as Jellyfin reports them. A
   transcoding session reports its real outbound bitrate; a direct-play session
   shows the file's average bitrate, which is what the client pulls in the
-  steady state but not a packet-level measurement. Jellyfin exposes no
-  per-session throughput counter. Divide by 8 for MB/s: 13.8 Mbps ≈ 1.7 MB/s.
+  steady state but not a packet-level measurement. Averaged figures are tagged
+  **(avg)** so the two are never confused, and one averaged component tags the
+  total. Jellyfin exposes no per-session throughput counter. Divide by 8 for
+  MB/s: 13.8 Mbps ≈ 1.7 MB/s.
 - **Direct-play bitrates are cached for five minutes, not forever.** A media
   source ID is stable across the file behind it being replaced — for a
   single-version movie the media source ID *is* the item ID — so an *arr

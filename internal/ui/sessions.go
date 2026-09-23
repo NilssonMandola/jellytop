@@ -8,6 +8,7 @@ import (
 
 	"github.com/NilssonMandola/jellytop/internal/jellyfin"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type sessionsMsg struct {
@@ -49,20 +50,39 @@ func newSessionsPane(c *jellyfin.Client) *sessionsPane {
 	return &sessionsPane{client: c, bitrates: map[string]cachedBitrate{}}
 }
 
-// bitrate returns the outbound bandwidth of a session in bits per second.
-// Transcoding sessions report it directly; direct-play sessions need the
-// cached media-source figure.
-func (p *sessionsPane) bitrate(s jellyfin.Session) (int64, bool) {
+// sessionRate is a session's outbound bandwidth, and whether the figure is a
+// live rate or an average over the whole file.
+type sessionRate struct {
+	bps int64
+	// estimated marks a figure taken from the media source rather than
+	// measured: the file's average bitrate, which is what a direct-play client
+	// pulls in the steady state but not its instantaneous throughput.
+	estimated bool
+}
+
+// label renders the rate, tagging averages so they are not mistaken for
+// measurements.
+func (r sessionRate) label() string {
+	if r.estimated {
+		return bitrate(r.bps) + " (avg)"
+	}
+	return bitrate(r.bps)
+}
+
+// bitrate returns the outbound bandwidth of a session. Transcoding sessions
+// report a real outbound rate; direct-play sessions fall back to the cached
+// media-source average.
+func (p *sessionsPane) bitrate(s jellyfin.Session) (sessionRate, bool) {
 	if !s.Playing() {
-		return 0, false
+		return sessionRate{}, false
 	}
 	if bps, ok := s.TranscodeBitrate(); ok {
-		return bps, true
+		return sessionRate{bps: bps}, true
 	}
 	// A stale entry is still shown while its replacement is in flight; a wrong
 	// number for a few seconds beats the column flickering to "—".
 	c, ok := p.bitrates[s.MediaSourceID()]
-	return c.bps, ok
+	return sessionRate{bps: c.bps, estimated: true}, ok
 }
 
 // fetchBitrates looks up any playing item whose bitrate is not cached yet.
@@ -112,19 +132,24 @@ func (p *sessionsPane) Load() tea.Cmd {
 }
 
 func (p *sessionsPane) Summary() string {
-	streaming, total := 0, int64(0)
+	streaming, total, anyEstimated := 0, int64(0), false
 	for _, s := range p.items {
 		if !s.Playing() {
 			continue
 		}
 		streaming++
-		if bps, ok := p.bitrate(s); ok {
-			total += bps
+		if r, ok := p.bitrate(s); ok {
+			total += r.bps
+			anyEstimated = anyEstimated || r.estimated
 		}
 	}
 	summary := fmt.Sprintf("%d sessions · %d streaming", len(p.items), streaming)
 	if total > 0 {
 		summary += " · " + bitrate(total) + " out"
+		// One averaged component makes the whole total an average.
+		if anyEstimated {
+			summary += " (avg)"
+		}
 	}
 	return summary
 }
@@ -229,7 +254,7 @@ func (p *sessionsPane) View(w, h int) string {
 		wUser   = 12
 		wDevice = 18
 		wStream = 17
-		wRate   = 10
+		wRate   = 16
 		wBar    = 12
 		wTime   = 15
 	)
@@ -274,8 +299,8 @@ func (p *sessionsPane) View(w, h int) string {
 				stream = col(kind, wStream, styleOK)
 			}
 
-			if bps, ok := p.bitrate(s); ok {
-				rate = col(bitrate(bps), wRate, styleText)
+			if r, ok := p.bitrate(s); ok {
+				rate = rateCell(r, wRate)
 			}
 
 			barStyle := styleOK
@@ -301,6 +326,24 @@ func (p *sessionsPane) View(w, h int) string {
 		}
 	}
 	return fillHeight(b.String(), h)
+}
+
+// rateCell renders a bitrate, dimming the "(avg)" tag so the number stays
+// dominant while the caveat is still legible.
+func rateCell(r sessionRate, w int) cell {
+	plain := r.label()
+	if !r.estimated {
+		return col(plain, w, styleText)
+	}
+
+	num, tag := bitrate(r.bps), " (avg)"
+	raw := styleText.Render(num) + styleFaint.Render(tag)
+	if gap := w - lipgloss.Width(plain); gap > 0 {
+		raw += strings.Repeat(" ", gap)
+	} else if gap < 0 {
+		raw = fitStyled(raw, w) // narrow terminal: fall back to truncation
+	}
+	return cell{text: plain, w: w, style: styleText, raw: raw}
 }
 
 func deviceLabel(s jellyfin.Session) string {
@@ -348,12 +391,12 @@ func (p *sessionsPane) viewDetail(w int) string {
 			line("Paused", yesNo(s.PlayState.IsPaused))
 			line("Play method", s.PlayState.PlayMethod)
 		}
-		if bps, ok := p.bitrate(s); ok {
-			label := "Bitrate (source)"
-			if _, transcoding := s.TranscodeBitrate(); transcoding {
-				label = "Bitrate (outbound)"
+		if r, ok := p.bitrate(s); ok {
+			if r.estimated {
+				line("Bitrate", bitrate(r.bps)+"  (file average, not measured)")
+			} else {
+				line("Bitrate", bitrate(r.bps)+"  (outbound, live)")
 			}
-			line(label, bitrate(bps))
 		}
 		if t := s.TranscodingInfo; t != nil {
 			b.WriteString("\n" + styleTitle.Render("Transcoding") + "\n\n")
