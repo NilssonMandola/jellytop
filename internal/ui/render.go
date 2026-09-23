@@ -155,6 +155,21 @@ func hhmmss(d time.Duration) string {
 	return fmt.Sprintf("%d:%02d", m, s)
 }
 
+// bitrate renders bits per second as kbps, Mbps or Gbps. Jellyfin's figures
+// are decimal (a 13793791 bps file is "13.8 Mbps"), so the divisor is 1000.
+func bitrate(bps int64) string {
+	switch {
+	case bps <= 0:
+		return "—"
+	case bps < 1_000_000:
+		return fmt.Sprintf("%d kbps", bps/1_000)
+	case bps < 1_000_000_000:
+		return fmt.Sprintf("%.1f Mbps", float64(bps)/1_000_000)
+	default:
+		return fmt.Sprintf("%.2f Gbps", float64(bps)/1_000_000_000)
+	}
+}
+
 // relTime renders a timestamp as a compact age: 4s, 12m, 3h, 6d.
 func relTime(t time.Time) string {
 	if t.IsZero() {

@@ -15,15 +15,72 @@ type sessionsMsg struct {
 	err   error
 }
 
+// bitratesMsg carries media-source bitrates looked up for direct-play sessions.
+type bitratesMsg struct {
+	rates map[string]int64
+	err   error
+}
+
 type sessionsPane struct {
 	client *jellyfin.Client
 	items  []jellyfin.Session
 	cur    cursor
 	err    error
 	detail bool
+	// bitrates caches media source ID -> bits per second. A media source's
+	// bitrate never changes, so entries are kept for the life of the process.
+	bitrates map[string]int64
 }
 
-func newSessionsPane(c *jellyfin.Client) *sessionsPane { return &sessionsPane{client: c} }
+func newSessionsPane(c *jellyfin.Client) *sessionsPane {
+	return &sessionsPane{client: c, bitrates: map[string]int64{}}
+}
+
+// bitrate returns the outbound bandwidth of a session in bits per second.
+// Transcoding sessions report it directly; direct-play sessions need the
+// cached media-source figure.
+func (p *sessionsPane) bitrate(s jellyfin.Session) (int64, bool) {
+	if !s.Playing() {
+		return 0, false
+	}
+	if bps, ok := s.TranscodeBitrate(); ok {
+		return bps, true
+	}
+	bps, ok := p.bitrates[s.MediaSourceID()]
+	return bps, ok
+}
+
+// fetchBitrates looks up any playing item whose bitrate is not cached yet.
+func (p *sessionsPane) fetchBitrates() tea.Cmd {
+	var ids []string
+	seen := map[string]bool{}
+	for _, s := range p.items {
+		if !s.Playing() {
+			continue
+		}
+		if _, ok := s.TranscodeBitrate(); ok {
+			continue // transcodes report their own rate
+		}
+		if _, cached := p.bitrates[s.MediaSourceID()]; cached {
+			continue
+		}
+		if id := s.NowPlayingItem.ID; id != "" && !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+
+	c := p.client
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+		defer cancel()
+		rates, err := c.MediaSourceBitrates(ctx, ids)
+		return bitratesMsg{rates: rates, err: err}
+	}
+}
 
 func (p *sessionsPane) Title() string           { return "Sessions" }
 func (p *sessionsPane) Interval() time.Duration { return 2 * time.Second }
@@ -40,13 +97,21 @@ func (p *sessionsPane) Load() tea.Cmd {
 }
 
 func (p *sessionsPane) Summary() string {
-	streaming := 0
+	streaming, total := 0, int64(0)
 	for _, s := range p.items {
-		if s.Playing() {
-			streaming++
+		if !s.Playing() {
+			continue
+		}
+		streaming++
+		if bps, ok := p.bitrate(s); ok {
+			total += bps
 		}
 	}
-	return fmt.Sprintf("%d sessions · %d streaming", len(p.items), streaming)
+	summary := fmt.Sprintf("%d sessions · %d streaming", len(p.items), streaming)
+	if total > 0 {
+		summary += " · " + bitrate(total) + " out"
+	}
+	return summary
 }
 
 func (p *sessionsPane) Keys() []keyHint {
@@ -75,6 +140,14 @@ func (p *sessionsPane) Handle(msg tea.Msg) (tea.Cmd, bool) {
 		if msg.err == nil {
 			p.items = msg.items
 			p.cur.move(0, len(p.items))
+			return p.fetchBitrates(), true
+		}
+		return nil, true
+
+	case bitratesMsg:
+		// A failed lookup is not worth surfacing: the column simply stays "—".
+		for id, bps := range msg.rates {
+			p.bitrates[id] = bps
 		}
 		return nil, true
 
@@ -140,10 +213,11 @@ func (p *sessionsPane) View(w, h int) string {
 		wUser   = 12
 		wDevice = 18
 		wStream = 17
+		wRate   = 10
 		wBar    = 12
 		wTime   = 15
 	)
-	wTitle := w - (wMark + wUser + wDevice + wStream + wBar + wTime + 6)
+	wTitle := w - (wMark + wUser + wDevice + wStream + wRate + wBar + wTime + 7)
 	if wTitle < 12 {
 		wTitle = 12
 	}
@@ -152,8 +226,8 @@ func (p *sessionsPane) View(w, h int) string {
 	b.WriteString(renderRow(false,
 		col("", wMark, styleHeaderRow), col("USER", wUser, styleHeaderRow),
 		col("NOW PLAYING", wTitle, styleHeaderRow), col("DEVICE", wDevice, styleHeaderRow),
-		col("STREAM", wStream, styleHeaderRow), col("", wBar, styleHeaderRow),
-		col("", wTime, styleHeaderRow),
+		col("STREAM", wStream, styleHeaderRow), col("BITRATE", wRate, styleHeaderRow),
+		col("", wBar, styleHeaderRow), col("", wTime, styleHeaderRow),
 	))
 	b.WriteString("\n")
 
@@ -164,6 +238,7 @@ func (p *sessionsPane) View(w, h int) string {
 		mark := col("○", wMark, styleFaint)
 		title := col("idle", wTitle, styleFaint)
 		stream := col("—", wStream, styleFaint)
+		rate := col("—", wRate, styleFaint)
 		bar := col("", wBar, styleFaint)
 		when := col("seen "+relTime(s.LastActivityDate), wTime, styleFaint)
 
@@ -183,6 +258,10 @@ func (p *sessionsPane) View(w, h int) string {
 				stream = col(kind, wStream, styleOK)
 			}
 
+			if bps, ok := p.bitrate(s); ok {
+				rate = col(bitrate(bps), wRate, styleText)
+			}
+
 			barStyle := styleOK
 			if paused {
 				barStyle = styleWarn
@@ -199,7 +278,7 @@ func (p *sessionsPane) View(w, h int) string {
 
 		b.WriteString(renderRow(i == p.cur.idx,
 			mark, col(s.UserName, wUser, styleText), title,
-			col(deviceLabel(s), wDevice, styleMuted), stream, bar, when,
+			col(deviceLabel(s), wDevice, styleMuted), stream, rate, bar, when,
 		))
 		if i < hi-1 {
 			b.WriteString("\n")
@@ -252,6 +331,13 @@ func (p *sessionsPane) viewDetail(w int) string {
 			line("Position", fmt.Sprintf("%s / %s (%.0f%%)", hhmmss(pos), hhmmss(total), s.Progress()*100))
 			line("Paused", yesNo(s.PlayState.IsPaused))
 			line("Play method", s.PlayState.PlayMethod)
+		}
+		if bps, ok := p.bitrate(s); ok {
+			label := "Bitrate (source)"
+			if _, transcoding := s.TranscodeBitrate(); transcoding {
+				label = "Bitrate (outbound)"
+			}
+			line(label, bitrate(bps))
 		}
 		if t := s.TranscodingInfo; t != nil {
 			b.WriteString("\n" + styleTitle.Render("Transcoding") + "\n\n")

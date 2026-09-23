@@ -126,6 +126,25 @@ func (s Session) Progress() float64 {
 	return p
 }
 
+// TranscodeBitrate returns the outbound bitrate in bits per second for a
+// transcoding session. Direct-play sessions carry no bitrate here; their
+// figure comes from the item's media source (see MediaSourceBitrates).
+func (s Session) TranscodeBitrate() (int64, bool) {
+	if s.TranscodingInfo == nil || s.TranscodingInfo.Bitrate <= 0 {
+		return 0, false
+	}
+	return int64(s.TranscodingInfo.Bitrate), true
+}
+
+// MediaSourceID identifies which media source a session is playing, used to
+// look its bitrate up.
+func (s Session) MediaSourceID() string {
+	if s.PlayState == nil {
+		return ""
+	}
+	return s.PlayState.MediaSourceID
+}
+
 // StreamKind summarises how the media is reaching the client.
 func (s Session) StreamKind() string {
 	if s.TranscodingInfo == nil {

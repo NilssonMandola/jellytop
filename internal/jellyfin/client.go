@@ -121,6 +121,58 @@ func (c *Client) Sessions(ctx context.Context) ([]Session, error) {
 	return s, nil
 }
 
+// MediaSourceBitrates looks up the nominal bitrate of every media source
+// belonging to the given items, in a single request, keyed by media source ID.
+//
+// Direct-play sessions report no bitrate of their own — /Sessions returns the
+// item without its MediaSources — so the figure has to come from the item.
+// Where the server records no bitrate, it is derived from file size and
+// runtime, which is what an average bitrate amounts to anyway.
+func (c *Client) MediaSourceBitrates(ctx context.Context, itemIDs []string) (map[string]int64, error) {
+	if len(itemIDs) == 0 {
+		return map[string]int64{}, nil
+	}
+	q := url.Values{
+		"ids":    {strings.Join(itemIDs, ",")},
+		"fields": {"MediaSources"},
+	}
+	var res struct {
+		Items []struct {
+			ID           string `json:"Id"`
+			MediaSources []struct {
+				ID           string `json:"Id"`
+				Bitrate      int64  `json:"Bitrate"`
+				Size         int64  `json:"Size"`
+				RunTimeTicks int64  `json:"RunTimeTicks"`
+			} `json:"MediaSources"`
+		} `json:"Items"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/Items", q, nil, &res); err != nil {
+		return nil, err
+	}
+
+	out := make(map[string]int64, len(res.Items))
+	for _, item := range res.Items {
+		for _, ms := range item.MediaSources {
+			bitrate := ms.Bitrate
+			if bitrate == 0 && ms.Size > 0 && ms.RunTimeTicks > 0 {
+				if secs := TicksToDuration(ms.RunTimeTicks).Seconds(); secs > 0 {
+					bitrate = int64(float64(ms.Size) * 8 / secs)
+				}
+			}
+			if bitrate <= 0 {
+				continue
+			}
+			id := ms.ID
+			if id == "" {
+				id = item.ID
+			}
+			out[id] = bitrate
+		}
+	}
+	return out, nil
+}
+
 // StopPlayback tells a session to stop whatever it is playing.
 func (c *Client) StopPlayback(ctx context.Context, sessionID string) error {
 	return c.do(ctx, http.MethodPost, "/Sessions/"+url.PathEscape(sessionID)+"/Playing/Stop", nil, nil, nil)

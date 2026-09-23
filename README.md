@@ -9,12 +9,12 @@ Every other Jellyfin TUI is a *player*. This one is the dashboard.
 jellytop  muse · 10.11.11 · http://127.0.0.1:8096                                    15:42:03
  1 Sessions   2 Activity   3 Users   4 Libraries   5 Tasks
 
-  USER       NOW PLAYING                        DEVICE              STREAM
-▶ ada        Severance S01E03 — In Perpetuity   Jellyfin Web · Mac  Direct Play  ████████░░░░  24:11/45:02
-⏸ linus      Dune: Part Two (2024)              Infuse · Apple TV   Transcode    ███░░░░░░░░░  18:40/2:46:09
-○ grace      idle                               Jellyfin · iPhone   —                          seen 3h
+  USER       NOW PLAYING                        DEVICE              STREAM       BITRATE
+▶ ada        Severance S01E03 — In Perpetuity   Jellyfin Web · Mac  Direct Play  13.8 Mbps  ████████░░░░  24:11/45:02
+⏸ linus      Dune: Part Two (2024)              Infuse · Apple TV   Transcode     4.0 Mbps  ███░░░░░░░░░  18:40/2:46:09
+○ grace      idle                               Jellyfin · iPhone   —                    —                seen 3h
 
-3 sessions · 2 streaming                                                          updated 1s ago
+3 sessions · 2 streaming · 17.8 Mbps out                                                     updated 1s ago
 enter details  ·  s stop playback  ·  m message  ·  r refresh  ·  tab next  ·  ? help  ·  q quit
 ```
 
@@ -22,7 +22,7 @@ enter details  ·  s stop playback  ·  m message  ·  r refresh  ·  tab next  
 
 | Tab | Shows | Actions |
 |---|---|---|
-| **Sessions** | who's connected, what's playing, direct play vs transcode, live progress | stop playback, send a message to a client, full session detail |
+| **Sessions** | who's connected, what's playing, direct play vs transcode, per-session bitrate and the total going out, live progress | stop playback, send a message to a client, full session detail |
 | **Activity** | the server activity log, paged and filterable | filter, page, per-entry detail |
 | **Users** | accounts, admin/disabled state, last login and last seen | enable/disable, grant/revoke admin |
 | **Libraries** | configured libraries, their paths and refresh state | trigger a scan |
@@ -96,6 +96,10 @@ Per tab: `s` stop playback and `m` message a client (Sessions) · `/` filter and
 
 ## Notes and limits
 
+- **Bitrate is nominal, not measured.** A transcoding session reports its real
+  outbound bitrate; a direct-play session shows the media source's average
+  bitrate, which is what the client is pulling in the steady state but not a
+  packet-level measurement. Jellyfin exposes no per-session throughput counter.
 - **Activity filtering is page-local.** `/` filters the 100 entries currently
   loaded, not the whole log — Jellyfin's activity endpoint has no search
   parameter.

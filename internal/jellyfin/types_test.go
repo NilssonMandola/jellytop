@@ -135,3 +135,26 @@ func TestTaskRunning(t *testing.T) {
 		}
 	}
 }
+
+func TestTranscodeBitrate(t *testing.T) {
+	if _, ok := (Session{}).TranscodeBitrate(); ok {
+		t.Error("a session with no transcode info should report no bitrate")
+	}
+	if _, ok := (Session{TranscodingInfo: &TranscodingInfo{Bitrate: 0}}).TranscodeBitrate(); ok {
+		t.Error("a zero bitrate should count as unknown, not as 0 bps")
+	}
+	got, ok := (Session{TranscodingInfo: &TranscodingInfo{Bitrate: 4_000_000}}).TranscodeBitrate()
+	if !ok || got != 4_000_000 {
+		t.Errorf("TranscodeBitrate() = %d, %v; want 4000000, true", got, ok)
+	}
+}
+
+func TestMediaSourceID(t *testing.T) {
+	if got := (Session{}).MediaSourceID(); got != "" {
+		t.Errorf("no play state should yield an empty source ID, got %q", got)
+	}
+	s := Session{PlayState: &PlayerState{MediaSourceID: "abc"}}
+	if got := s.MediaSourceID(); got != "abc" {
+		t.Errorf("MediaSourceID() = %q, want abc", got)
+	}
+}

@@ -177,3 +177,19 @@ func TestWrapRespectsWidth(t *testing.T) {
 		t.Error("expected the text to wrap onto several lines")
 	}
 }
+
+func TestBitrate(t *testing.T) {
+	for in, want := range map[int64]string{
+		0:             "—",
+		-1:            "—",
+		128_000:       "128 kbps",
+		999_999:       "999 kbps",
+		1_000_000:     "1.0 Mbps",
+		13_793_791:    "13.8 Mbps", // a 1080p BluRay remux
+		2_500_000_000: "2.50 Gbps",
+	} {
+		if got := bitrate(in); got != want {
+			t.Errorf("bitrate(%d) = %q, want %q", in, got, want)
+		}
+	}
+}
