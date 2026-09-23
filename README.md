@@ -96,10 +96,17 @@ Per tab: `s` stop playback and `m` message a client (Sessions) · `/` filter and
 
 ## Notes and limits
 
-- **Bitrate is nominal, not measured.** A transcoding session reports its real
-  outbound bitrate; a direct-play session shows the media source's average
-  bitrate, which is what the client is pulling in the steady state but not a
-  packet-level measurement. Jellyfin exposes no per-session throughput counter.
+- **Bitrate is nominal, not measured.** Figures are megabits per second — the
+  sum of the media source's stream bitrates, as Jellyfin reports them. A
+  transcoding session reports its real outbound bitrate; a direct-play session
+  shows the file's average bitrate, which is what the client pulls in the
+  steady state but not a packet-level measurement. Jellyfin exposes no
+  per-session throughput counter. Divide by 8 for MB/s: 13.8 Mbps ≈ 1.7 MB/s.
+- **Direct-play bitrates are cached for five minutes, not forever.** A media
+  source ID is stable across the file behind it being replaced — for a
+  single-version movie the media source ID *is* the item ID — so an *arr
+  upgrading 1080p to 4K would otherwise leave a stale figure on screen
+  indefinitely.
 - **Activity filtering is page-local.** `/` filters the 100 entries currently
   loaded, not the whole log — Jellyfin's activity endpoint has no search
   parameter.

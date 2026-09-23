@@ -27,13 +27,26 @@ type sessionsPane struct {
 	cur    cursor
 	err    error
 	detail bool
-	// bitrates caches media source ID -> bits per second. A media source's
-	// bitrate never changes, so entries are kept for the life of the process.
-	bitrates map[string]int64
+	// bitrates caches media source ID -> bits per second.
+	bitrates map[string]cachedBitrate
 }
 
+// bitrateTTL bounds how long a cached figure is trusted. A media source ID is
+// stable across a file being replaced — for a single-version movie it is just
+// the item ID — so an *arr upgrading 1080p to 4K changes the bitrate without
+// changing the key. Live streams drift for the same reason. Re-checking every
+// few minutes costs one small request per playing title.
+const bitrateTTL = 5 * time.Minute
+
+type cachedBitrate struct {
+	bps       int64
+	fetchedAt time.Time
+}
+
+func (c cachedBitrate) fresh() bool { return time.Since(c.fetchedAt) < bitrateTTL }
+
 func newSessionsPane(c *jellyfin.Client) *sessionsPane {
-	return &sessionsPane{client: c, bitrates: map[string]int64{}}
+	return &sessionsPane{client: c, bitrates: map[string]cachedBitrate{}}
 }
 
 // bitrate returns the outbound bandwidth of a session in bits per second.
@@ -46,8 +59,10 @@ func (p *sessionsPane) bitrate(s jellyfin.Session) (int64, bool) {
 	if bps, ok := s.TranscodeBitrate(); ok {
 		return bps, true
 	}
-	bps, ok := p.bitrates[s.MediaSourceID()]
-	return bps, ok
+	// A stale entry is still shown while its replacement is in flight; a wrong
+	// number for a few seconds beats the column flickering to "—".
+	c, ok := p.bitrates[s.MediaSourceID()]
+	return c.bps, ok
 }
 
 // fetchBitrates looks up any playing item whose bitrate is not cached yet.
@@ -61,7 +76,7 @@ func (p *sessionsPane) fetchBitrates() tea.Cmd {
 		if _, ok := s.TranscodeBitrate(); ok {
 			continue // transcodes report their own rate
 		}
-		if _, cached := p.bitrates[s.MediaSourceID()]; cached {
+		if cached, ok := p.bitrates[s.MediaSourceID()]; ok && cached.fresh() {
 			continue
 		}
 		if id := s.NowPlayingItem.ID; id != "" && !seen[id] {
@@ -146,8 +161,9 @@ func (p *sessionsPane) Handle(msg tea.Msg) (tea.Cmd, bool) {
 
 	case bitratesMsg:
 		// A failed lookup is not worth surfacing: the column simply stays "—".
+		now := time.Now()
 		for id, bps := range msg.rates {
-			p.bitrates[id] = bps
+			p.bitrates[id] = cachedBitrate{bps: bps, fetchedAt: now}
 		}
 		return nil, true
 
