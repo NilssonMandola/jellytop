@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"runtime/debug"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -19,6 +20,16 @@ import (
 
 // version is overwritten at build time with -ldflags "-X main.version=…".
 var version = "dev"
+
+func init() {
+	// go install doesn't set ldflags, but it does record the module version.
+	if version != "dev" {
+		return
+	}
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		version = info.Main.Version
+	}
+}
 
 func main() {
 	if err := run(); err != nil {

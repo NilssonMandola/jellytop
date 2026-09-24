@@ -35,6 +35,17 @@ Every action that changes server state asks first.
 
 ## Install
 
+Download a prebuilt binary for Linux, macOS or Windows from the
+[latest release](https://github.com/NilssonMandola/jellytop/releases/latest),
+unpack it and put `jellytop` somewhere on your `PATH`. On macOS the binary is
+unsigned, so clear the download quarantine once:
+
+```sh
+xattr -d com.apple.quarantine jellytop
+```
+
+Or with Go installed:
+
 ```sh
 go install github.com/NilssonMandola/jellytop@latest
 ```
